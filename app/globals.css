@@ -80,7 +80,7 @@ select {
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--gold-400), var(--gold-500));
+  background: linear-gradient(135deg, var(--green-700), var(--green-600));
   display: flex;
   align-items: center;
   justify-content: center;

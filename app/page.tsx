@@ -36,9 +36,10 @@ export default function LoginPage() {
   return (
     <div className="login-wrap">
       <div className="login-card">
-        <div className="login-badge">🌿</div>
-        <h1>لوحة بيانات مفوضية الشمال</h1>
-        <p className="sub">جمعية الكشاف المسلم في لبنان</p>
+        <div className="login-badge">⚜️</div>
+        <h1>جمعية الكشاف المسلم في لبنان</h1>
+
+        <h2>لوحة بيانات مفوضية الشمال</h2>
 
         <form onSubmit={handleSubmit}>
           {error && <div className="error-box">{error}</div>}
@@ -68,6 +69,8 @@ export default function LoginPage() {
             {loading ? "جارٍ الدخول..." : "تسجيل الدخول"}
           </button>
         </form>
+        <h3>لا تنس الصلاة على النبي محمد ﷺ</h3>
+        <p>Powered by Youssef Mariam</p>
       </div>
     </div>
   );
