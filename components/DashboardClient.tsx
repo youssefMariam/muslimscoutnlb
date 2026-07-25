@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import * as XLSX from "xlsx";
 import {
   FIELD_GROUPS,
   TABLE_COLUMNS,
@@ -39,6 +40,33 @@ function parseFileLinks(value: string): string[] {
   return Array.from(new Set(links.map((s) => s.trim())));
 }
 
+function isDriveLink(value: string) {
+  return /https?:\/\/(?:drive\.google\.com|docs\.google\.com)\//i.test(value);
+}
+
+function toProxyLink(value: string, origin: string) {
+  return `${origin}/api/file-proxy?u=${encodeURIComponent(value)}`;
+}
+
+function cleanExportValue(value: string, origin: string) {
+  if (!value) return "";
+
+  const trimmed = value
+    .replace(/↵/g, " ")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const links = parseFileLinks(trimmed);
+  if (links.length > 0) {
+    return Array.from(new Set(links))
+      .map((link) => (isDriveLink(link) ? toProxyLink(link, origin) : link))
+      .join("; ");
+  }
+
+  return trimmed;
+}
+
 export default function DashboardClient({ session }: { session: SessionData }) {
   const router = useRouter();
   const [rows, setRows] = useState<Row[]>([]);
@@ -50,6 +78,7 @@ export default function DashboardClient({ session }: { session: SessionData }) {
   const [troopFilter, setTroopFilter] = useState("الكل");
   const [stageFilter, setStageFilter] = useState("الكل");
   const [selected, setSelected] = useState<Row | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const isMainAdmin = session.troop === "all";
 
@@ -82,6 +111,50 @@ export default function DashboardClient({ session }: { session: SessionData }) {
   async function handleLogout() {
     await fetch("/api/login", { method: "DELETE" });
     router.push("/");
+  }
+
+  async function handleExportExcel() {
+    if (rows.length === 0) return;
+
+    setExporting(true);
+    try {
+      const origin = window.location.origin;
+      const preferredKeys = TABLE_COLUMNS.map((column) => column.key);
+      const allKeys = Array.from(
+        new Set(rows.flatMap((row) => Object.keys(row))),
+      );
+      const exportKeys = [
+        ...preferredKeys,
+        ...allKeys.filter((key) => !preferredKeys.includes(key)),
+      ];
+
+      const exportRows = rows.map((row, index) => {
+        const output: Record<string, string | number> = { "#": index + 1 };
+        exportKeys.forEach((key) => {
+          output[key] = cleanExportValue(row[key] ?? "", origin);
+        });
+        return output;
+      });
+
+      const worksheet = XLSX.utils.json_to_sheet(exportRows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "البيانات");
+
+      const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const stamp = new Date().toISOString().slice(0, 10);
+      anchor.href = url;
+      anchor.download = `scout-dashboard-${stamp}.xlsx`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
   }
 
   const troopOptions = useMemo(() => {
@@ -195,6 +268,13 @@ export default function DashboardClient({ session }: { session: SessionData }) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+          <button
+            className="btn-export"
+            onClick={handleExportExcel}
+            disabled={loading || exporting || rows.length === 0}
+          >
+            {exporting ? "جارٍ التصدير..." : "تحميل Excel"}
+          </button>
           {isMainAdmin && (
             <select
               className="select-input"
@@ -231,44 +311,46 @@ export default function DashboardClient({ session }: { session: SessionData }) {
           ) : filteredRows.length === 0 ? (
             <div className="empty-state">ما في نتائج مطابقة</div>
           ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th style={{ width: 44 }}>#</th>
-                  {TABLE_COLUMNS.map((c) => (
-                    <th key={c.key}>{c.label}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredRows.map((row, idx) => (
-                  <tr key={idx} onClick={() => setSelected(row)}>
-                    <td>{idx + 1}</td>
-                    {TABLE_COLUMNS.map((c) => {
-                      if (c.key === ACTIVE_FIELD) {
-                        return (
-                          <td key={c.key}>
-                            <span className={activeBadgeClass(row[c.key])}>
-                              {row[c.key] || "-"}
-                            </span>
-                          </td>
-                        );
-                      }
-                      if (c.key === GENDER_FIELD) {
-                        return (
-                          <td key={c.key}>
-                            <span className={genderBadgeClass(row[c.key])}>
-                              {row[c.key] || "-"}
-                            </span>
-                          </td>
-                        );
-                      }
-                      return <td key={c.key}>{row[c.key] || "-"}</td>;
-                    })}
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th style={{ width: 44 }}>#</th>
+                    {TABLE_COLUMNS.map((c) => (
+                      <th key={c.key}>{c.label}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {filteredRows.map((row, idx) => (
+                    <tr key={idx} onClick={() => setSelected(row)}>
+                      <td>{idx + 1}</td>
+                      {TABLE_COLUMNS.map((c) => {
+                        if (c.key === ACTIVE_FIELD) {
+                          return (
+                            <td key={c.key}>
+                              <span className={activeBadgeClass(row[c.key])}>
+                                {row[c.key] || "-"}
+                              </span>
+                            </td>
+                          );
+                        }
+                        if (c.key === GENDER_FIELD) {
+                          return (
+                            <td key={c.key}>
+                              <span className={genderBadgeClass(row[c.key])}>
+                                {row[c.key] || "-"}
+                              </span>
+                            </td>
+                          );
+                        }
+                        return <td key={c.key}>{row[c.key] || "-"}</td>;
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </div>
