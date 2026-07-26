@@ -3,7 +3,8 @@ import { Readable } from "stream";
 import { verifySessionCookie } from "@/lib/session";
 import { fetchRowsForTroop } from "@/lib/sheets";
 import { extractDriveFileId, fetchDriveFile } from "@/lib/drive";
-import { FILE_FIELDS } from "@/lib/fields";
+import { FILE_FIELDS, getFieldValue } from "@/lib/fields";
+import { parseFileLinks } from "@/lib/utils";
 
 export const runtime = "nodejs";
 
@@ -18,27 +19,31 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "رابط ناقص" }, { status: 400 });
   }
 
+  const requestedFileId = extractDriveFileId(url);
+  if (!requestedFileId) {
+    return NextResponse.json({ error: "تعذّر تحديد الملف" }, { status: 400 });
+  }
+
   // ✅ نقطة الحماية الأساسية: هل هالرابط بالذات موجود ضمن بيانات
   // فوج هالأدمن تحديدًا؟ (وليس أي فوج تاني). إذا لأ، منوع.
   const rows = await fetchRowsForTroop(session.troop);
   const isAllowed = rows.some((row) =>
-    FILE_FIELDS.some((field) => (row[field] || "").includes(url))
+    FILE_FIELDS.some((field) =>
+      parseFileLinks(getFieldValue(row, field)).some(
+        (link) => extractDriveFileId(link) === requestedFileId,
+      ),
+    ),
   );
 
   if (!isAllowed) {
     return NextResponse.json(
       { error: "غير مسموح بالوصول لهالملف" },
-      { status: 403 }
+      { status: 403 },
     );
   }
 
-  const fileId = extractDriveFileId(url);
-  if (!fileId) {
-    return NextResponse.json({ error: "تعذّر تحديد الملف" }, { status: 400 });
-  }
-
   try {
-    const file = await fetchDriveFile(fileId);
+    const file = await fetchDriveFile(requestedFileId);
     const webStream = Readable.toWeb(file.stream as Readable) as ReadableStream;
 
     return new Response(webStream, {
@@ -51,7 +56,7 @@ export async function GET(req: NextRequest) {
   } catch (err: any) {
     return NextResponse.json(
       { error: "تعذّر جلب الملف من Drive", details: err?.message },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

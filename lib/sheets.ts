@@ -24,22 +24,25 @@ function getAuth() {
       privateKey = json.private_key;
     } catch (e) {
       throw new Error(
-        "GOOGLE_SERVICE_ACCOUNT_B64 is set but could not be decoded/parsed as JSON."
+        "GOOGLE_SERVICE_ACCOUNT_B64 is set but could not be decoded/parsed as JSON.",
       );
     }
   }
 
   if (!clientEmail || !privateKey) {
     throw new Error(
-      "Missing Google credentials. Set either GOOGLE_SERVICE_ACCOUNT_B64, or both GOOGLE_CLIENT_EMAIL / GOOGLE_PRIVATE_KEY. See README."
+      "Missing Google credentials. Set either GOOGLE_SERVICE_ACCOUNT_B64, or both GOOGLE_CLIENT_EMAIL / GOOGLE_PRIVATE_KEY. See README.",
     );
   }
 
   // Sanity check: a well-formed PEM key must have real line breaks and the right header.
-  if (!privateKey.includes("-----BEGIN PRIVATE KEY-----") || !privateKey.includes("\n")) {
+  if (
+    !privateKey.includes("-----BEGIN PRIVATE KEY-----") ||
+    !privateKey.includes("\n")
+  ) {
     throw new Error(
       "GOOGLE_PRIVATE_KEY does not look like a valid PEM key (missing header or newlines). " +
-        "Use GOOGLE_SERVICE_ACCOUNT_B64 instead to avoid escaping issues — see README."
+        "Use GOOGLE_SERVICE_ACCOUNT_B64 instead to avoid escaping issues — see README.",
     );
   }
 
@@ -66,7 +69,9 @@ export type SheetRow = Record<string, string>;
 let cache: { rows: SheetRow[]; fetchedAt: number } | null = null;
 const CACHE_TTL_MS = 30 * 1000; // 30 seconds - tune as needed
 
-export async function fetchSheetRows(forceRefresh = false): Promise<SheetRow[]> {
+export async function fetchSheetRows(
+  forceRefresh = false,
+): Promise<SheetRow[]> {
   const now = Date.now();
   if (!forceRefresh && cache && now - cache.fetchedAt < CACHE_TTL_MS) {
     return cache.rows;
