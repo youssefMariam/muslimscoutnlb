@@ -3,7 +3,7 @@ import { Readable } from "stream";
 import { verifySessionCookie } from "@/lib/session";
 import { fetchRowsForTroop } from "@/lib/sheets";
 import { extractDriveFileId, fetchDriveFile } from "@/lib/drive";
-import { isFileFieldLabel } from "@/lib/fields";
+import { FILE_FIELDS } from "@/lib/fields";
 
 export const runtime = "nodejs";
 
@@ -22,15 +22,13 @@ export async function GET(req: NextRequest) {
   // فوج هالأدمن تحديدًا؟ (وليس أي فوج تاني). إذا لأ، منوع.
   const rows = await fetchRowsForTroop(session.troop);
   const isAllowed = rows.some((row) =>
-    Object.keys(row).some(
-      (key) => isFileFieldLabel(key) && (row[key] || "").includes(url),
-    ),
+    FILE_FIELDS.some((field) => (row[field] || "").includes(url))
   );
 
   if (!isAllowed) {
     return NextResponse.json(
       { error: "غير مسموح بالوصول لهالملف" },
-      { status: 403 },
+      { status: 403 }
     );
   }
 
@@ -53,7 +51,7 @@ export async function GET(req: NextRequest) {
   } catch (err: any) {
     return NextResponse.json(
       { error: "تعذّر جلب الملف من Drive", details: err?.message },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

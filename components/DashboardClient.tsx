@@ -1,24 +1,32 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import * as XLSX from "xlsx";
 import {
-  FIELD_GROUPS,
+  ALL_COLUMNS,
   TABLE_COLUMNS,
   NAME_FIELD,
   TROOP_FIELD,
   STAGE_FIELD,
   GENDER_FIELD,
   ACTIVE_FIELD,
-  getMatchingRowKey,
-  isFileFieldLabel,
+  PHONE_FIELD,
+  REGISTRY_FIELD,
+  getFieldValue,
 } from "@/lib/fields";
+import { cleanExportValue } from "@/lib/utils";
 import type { SessionData } from "@/lib/session";
+import type { Row } from "@/lib/types";
+import FilterPanel from "@/components/FilterPanel";
+import ProfileModal from "@/components/ProfileModal";
+import AnalyticsPanel from "@/components/AnalyticsPanel";
 
-type Row = Record<string, string>;
+type SortDir = "asc" | "desc" | null;
 
 const POLL_MS = 30000;
+const PAGE_SIZE = 20;
+const COLUMNS_STORAGE_KEY = "scout-dashboard-visible-columns";
 
 function activeBadgeClass(value: string) {
   if (value?.includes("غير")) return "badge badge-inactive";
@@ -34,60 +42,111 @@ function genderBadgeClass(value: string) {
   return "badge";
 }
 
-function parseFileLinks(value: string): string[] {
-  if (!value) return [];
-  const links = value.match(/https?:\/\/[^\s,\)]+/g) || [];
-  return Array.from(new Set(links.map((s) => s.trim())));
+function useDebounced<T>(value: T, delay = 250): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
 }
 
-function isDriveLink(value: string) {
-  return /https?:\/\/(?:drive\.google\.com|docs\.google\.com)\//i.test(value);
+function parseListParam(sp: URLSearchParams, key: string): string[] {
+  const v = sp.get(key);
+  return v ? v.split(",").filter(Boolean) : [];
 }
 
-function toProxyLink(value: string, origin: string) {
-  return `${origin}/api/file-proxy?u=${encodeURIComponent(value)}`;
-}
-
-function cleanExportValue(value: string, origin: string) {
-  if (!value) return "";
-
-  const trimmed = value
-    .replace(/↵/g, " ")
-    .replace(/[\u200B-\u200D\uFEFF]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  const links = parseFileLinks(trimmed);
-  if (links.length > 0) {
-    return Array.from(new Set(links))
-      .map((link) => (isDriveLink(link) ? toProxyLink(link, origin) : link))
-      .join("; ");
-  }
-
-  return trimmed;
+function toggleInArray(arr: string[], value: string): string[] {
+  return arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value];
 }
 
 export default function DashboardClient({ session }: { session: SessionData }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  const [search, setSearch] = useState("");
-  const [troopFilter, setTroopFilter] = useState("الكل");
-  const [stageFilter, setStageFilter] = useState("الكل");
+  const [searchInput, setSearchInput] = useState(searchParams.get("q") || "");
+  const search = useDebounced(searchInput, 250);
+
+  const [troops, setTroops] = useState<string[]>(() =>
+    parseListParam(searchParams, "troop"),
+  );
+  const [stages, setStages] = useState<string[]>(() =>
+    parseListParam(searchParams, "stage"),
+  );
+  const [genders, setGenders] = useState<string[]>(() =>
+    parseListParam(searchParams, "gender"),
+  );
+  const [statuses, setStatuses] = useState<string[]>(() =>
+    parseListParam(searchParams, "status"),
+  );
+
+  const [sortKey, setSortKey] = useState<string>(NAME_FIELD);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Row | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+
+  const [visibleColumns, setVisibleColumns] = useState<string[]>(() =>
+    TABLE_COLUMNS.map((c) => c.key),
+  );
 
   const isMainAdmin = session.troop === "all";
+
+  // تحميل تفضيل الأعمدة المحفوظ محليًا
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(COLUMNS_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0)
+          setVisibleColumns(parsed);
+      }
+    } catch {
+      // تجاهل - نستخدم الافتراضي
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        COLUMNS_STORAGE_KEY,
+        JSON.stringify(visibleColumns),
+      );
+    } catch {
+      // تجاهل
+    }
+  }, [visibleColumns]);
+
+  // مزامنة الفلاتر مع رابط الصفحة (قابل للمشاركة، ويشتغل معه زر رجوع بالمتصفح)
+  useEffect(() => {
+    const qs = new URLSearchParams();
+    if (search.trim()) qs.set("q", search.trim());
+    if (troops.length) qs.set("troop", troops.join(","));
+    if (stages.length) qs.set("stage", stages.join(","));
+    if (genders.length) qs.set("gender", genders.join(","));
+    if (statuses.length) qs.set("status", statuses.join(","));
+    const next = qs.toString();
+    const current = searchParams.toString();
+    if (next !== current) {
+      router.replace(next ? `${pathname}?${next}` : pathname, {
+        scroll: false,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, troops, stages, genders, statuses]);
 
   const loadData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
       const res = await fetch("/api/sheet-data", { cache: "no-store" });
       const data = await res.json();
-
       if (!res.ok) {
         setError(data.error || "حدث خطأ بجلب البيانات");
       } else {
@@ -108,27 +167,38 @@ export default function DashboardClient({ session }: { session: SessionData }) {
     return () => clearInterval(interval);
   }, [loadData]);
 
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setSelected(null);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, troops, stages, genders, statuses]);
+
   async function handleLogout() {
     await fetch("/api/login", { method: "DELETE" });
     router.push("/");
   }
 
   async function handleExportExcel() {
-    if (rows.length === 0) return;
-
+    if (filteredRows.length === 0) return;
     setExporting(true);
     try {
       const origin = window.location.origin;
-      const preferredKeys = TABLE_COLUMNS.map((column) => column.key);
+      const preferredKeys = TABLE_COLUMNS.map((c) => c.key);
       const allKeys = Array.from(
-        new Set(rows.flatMap((row) => Object.keys(row))),
+        new Set(filteredRows.flatMap((r) => Object.keys(r))),
       );
       const exportKeys = [
         ...preferredKeys,
-        ...allKeys.filter((key) => !preferredKeys.includes(key)),
+        ...allKeys.filter((k) => !preferredKeys.includes(k)),
       ];
 
-      const exportRows = rows.map((row, index) => {
+      const exportRows = filteredRows.map((row, index) => {
         const output: Record<string, string | number> = { "#": index + 1 };
         exportKeys.forEach((key) => {
           output[key] = cleanExportValue(row[key] ?? "", origin);
@@ -139,12 +209,10 @@ export default function DashboardClient({ session }: { session: SessionData }) {
       const worksheet = XLSX.utils.json_to_sheet(exportRows);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "البيانات");
-
       const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
       const blob = new Blob([buffer], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       });
-
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       const stamp = new Date().toISOString().slice(0, 10);
@@ -159,49 +227,133 @@ export default function DashboardClient({ session }: { session: SessionData }) {
 
   const troopOptions = useMemo(() => {
     if (!isMainAdmin) return [];
-    const set = new Set(rows.map((r) => r[TROOP_FIELD]).filter(Boolean));
+    const set = new Set(
+      rows.map((r) => getFieldValue(r, TROOP_FIELD)).filter(Boolean),
+    );
     return Array.from(set).sort();
   }, [rows, isMainAdmin]);
 
   const stageOptions = useMemo(() => {
-    const set = new Set(rows.map((r) => r[STAGE_FIELD]).filter(Boolean));
+    const set = new Set(
+      rows.map((r) => getFieldValue(r, STAGE_FIELD)).filter(Boolean),
+    );
     return Array.from(set).sort();
   }, [rows]);
 
   const filteredRows = useMemo(() => {
-    return rows.filter((r) => {
-      if (troopFilter !== "الكل" && r[TROOP_FIELD] !== troopFilter)
+    let result = rows.filter((r) => {
+      if (troops.length && !troops.includes(getFieldValue(r, TROOP_FIELD)))
         return false;
-      if (stageFilter !== "الكل" && r[STAGE_FIELD] !== stageFilter)
+      if (stages.length && !stages.includes(getFieldValue(r, STAGE_FIELD)))
         return false;
+      if (genders.length) {
+        const g = getFieldValue(r, GENDER_FIELD);
+        const isFemale = g.includes("أنث") || g.includes("انث");
+        const label = isFemale ? "أنثى" : g.includes("ذكر") ? "ذكر" : "";
+        if (!genders.includes(label)) return false;
+      }
+      if (statuses.length) {
+        const a = getFieldValue(r, ACTIVE_FIELD);
+        const isActive = a.includes("ناشط") && !a.includes("غير");
+        const label = isActive
+          ? "ناشط"
+          : a.includes("غير")
+            ? "غير ناشط"
+            : a.includes("مسافر")
+              ? "مسافر"
+              : "";
+        if (!statuses.includes(label)) return false;
+      }
       if (search.trim()) {
-        const q = search.trim().toLowerCase();
-        const hay =
-          `${r[NAME_FIELD] || ""} ${r["رقم الهاتف الشخصي"] || ""}`.toLowerCase();
-        if (!hay.includes(q)) return false;
+        const q = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        const hay = [
+          getFieldValue(r, NAME_FIELD),
+          getFieldValue(r, PHONE_FIELD),
+          getFieldValue(r, TROOP_FIELD),
+          getFieldValue(r, STAGE_FIELD),
+          getFieldValue(r, REGISTRY_FIELD),
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (!q.every((term) => hay.includes(term))) return false;
       }
       return true;
     });
-  }, [rows, troopFilter, stageFilter, search]);
+
+    if (sortKey && sortDir) {
+      result = [...result].sort((a, b) => {
+        const cmp = getFieldValue(a, sortKey).localeCompare(
+          getFieldValue(b, sortKey),
+          "ar",
+        );
+        return sortDir === "asc" ? cmp : -cmp;
+      });
+    }
+    return result;
+  }, [rows, troops, stages, genders, statuses, search, sortKey, sortDir]);
 
   const stats = useMemo(() => {
     const total = filteredRows.length;
-    const active = filteredRows.filter(
-      (r) =>
-        r[ACTIVE_FIELD]?.includes("ناشط") && !r[ACTIVE_FIELD]?.includes("غير"),
-    ).length;
-    const female = filteredRows.filter(
-      (r) =>
-        r[GENDER_FIELD]?.includes("أنث") || r[GENDER_FIELD]?.includes("انث"),
-    ).length;
+    const active = filteredRows.filter((r) => {
+      const a = getFieldValue(r, ACTIVE_FIELD);
+      return a.includes("ناشط") && !a.includes("غير");
+    }).length;
+    const female = filteredRows.filter((r) => {
+      const g = getFieldValue(r, GENDER_FIELD);
+      return g.includes("أنث") || g.includes("انث");
+    }).length;
     const male = filteredRows.filter((r) =>
-      r[GENDER_FIELD]?.includes("ذكر"),
+      getFieldValue(r, GENDER_FIELD).includes("ذكر"),
     ).length;
-    const troops = new Set(
-      filteredRows.map((r) => r[TROOP_FIELD]).filter(Boolean),
+    const troopsCount = new Set(
+      filteredRows.map((r) => getFieldValue(r, TROOP_FIELD)).filter(Boolean),
     ).size;
-    return { total, active, female, male, troops };
+    return { total, active, female, male, troops: troopsCount };
   }, [filteredRows]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  const pagedRows = useMemo(
+    () => filteredRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [filteredRows, page],
+  );
+
+  const activeFilterCount =
+    troops.length +
+    stages.length +
+    genders.length +
+    statuses.length +
+    (search.trim() ? 1 : 0);
+
+  function resetAll() {
+    setSearchInput("");
+    setTroops([]);
+    setStages([]);
+    setGenders([]);
+    setStatuses([]);
+  }
+
+  function toggleSort(key: string) {
+    if (sortKey === key) {
+      if (sortDir === "asc") setSortDir("desc");
+      else if (sortDir === "desc") {
+        setSortDir(null);
+        setSortKey("");
+      } else setSortDir("asc");
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
+
+  function sortIndicator(key: string) {
+    if (sortKey !== key || !sortDir) return "";
+    return sortDir === "asc" ? " ▲" : " ▼";
+  }
+
+  const shownColumns = ALL_COLUMNS.filter((c) =>
+    visibleColumns.includes(c.key),
+  );
+
   return (
     <div>
       <header className="app-header">
@@ -217,12 +369,16 @@ export default function DashboardClient({ session }: { session: SessionData }) {
         </div>
         <div className="header-actions">
           {lastUpdated && (
-            <span className="pill">
+            <span className="pill pill-desktop-only">
               آخر تحديث: {lastUpdated.toLocaleTimeString("ar-LB")}
             </span>
           )}
-          <button className="btn-ghost" onClick={() => loadData()}>
-            🔄 تحديث
+          <button
+            className="btn-ghost"
+            onClick={() => loadData()}
+            title="تحديث البيانات"
+          >
+            🔄 <span className="btn-label">تحديث</span>
           </button>
           <button className="btn-ghost" onClick={handleLogout}>
             خروج
@@ -261,159 +417,195 @@ export default function DashboardClient({ session }: { session: SessionData }) {
           )}
         </div>
 
-        <div className="toolbar">
-          <input
-            className="search-input"
-            placeholder="ابحث بالاسم أو رقم الهاتف..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <button
-            className="btn-export"
-            onClick={handleExportExcel}
-            disabled={loading || exporting || rows.length === 0}
-          >
-            {exporting ? "جارٍ التصدير..." : "تحميل Excel"}
-          </button>
-          {isMainAdmin && (
-            <select
-              className="select-input"
-              value={troopFilter}
-              onChange={(e) => setTroopFilter(e.target.value)}
+        <AnalyticsPanel rows={filteredRows} showTroops={isMainAdmin} />
+
+        <div className="toolbar-sticky">
+          <div className="toolbar">
+            <input
+              className="search-input"
+              placeholder="ابحث بالاسم، الهاتف، الفوج، المرحلة، رقم السجل..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+            />
+            <button
+              className="btn-filter-toggle"
+              onClick={() => setFilterPanelOpen(true)}
             >
-              <option value="الكل">كل الأفواج</option>
-              {troopOptions.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          )}
-          <select
-            className="select-input"
-            value={stageFilter}
-            onChange={(e) => setStageFilter(e.target.value)}
-          >
-            <option value="الكل">كل المراحل</option>
-            {stageOptions.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
+              ⚙️ فلاتر وأعمدة
+              {activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
+            </button>
+            <button
+              className="btn-export"
+              onClick={handleExportExcel}
+              disabled={loading || exporting || rows.length === 0}
+            >
+              {exporting ? "جارٍ التصدير..." : "⬇️ تحميل Excel"}
+            </button>
+          </div>
         </div>
+
+        {!loading && !error && filteredRows.length > 0 && (
+          <div className="results-meta">
+            عرض {(page - 1) * PAGE_SIZE + 1}–
+            {Math.min(page * PAGE_SIZE, filteredRows.length)} من{" "}
+            {filteredRows.length} عضو
+          </div>
+        )}
 
         <div className="table-card">
           {loading ? (
-            <div className="loading-state">جارٍ تحميل البيانات...</div>
-          ) : error ? (
-            <div className="empty-state">{error}</div>
-          ) : filteredRows.length === 0 ? (
-            <div className="empty-state">ما في نتائج مطابقة</div>
-          ) : (
-            <div className="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th style={{ width: 44 }}>#</th>
-                    {TABLE_COLUMNS.map((c) => (
-                      <th key={c.key}>{c.label}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredRows.map((row, idx) => (
-                    <tr key={idx} onClick={() => setSelected(row)}>
-                      <td>{idx + 1}</td>
-                      {TABLE_COLUMNS.map((c) => {
-                        if (c.key === ACTIVE_FIELD) {
-                          return (
-                            <td key={c.key}>
-                              <span className={activeBadgeClass(row[c.key])}>
-                                {row[c.key] || "-"}
-                              </span>
-                            </td>
-                          );
-                        }
-                        if (c.key === GENDER_FIELD) {
-                          return (
-                            <td key={c.key}>
-                              <span className={genderBadgeClass(row[c.key])}>
-                                {row[c.key] || "-"}
-                              </span>
-                            </td>
-                          );
-                        }
-                        return <td key={c.key}>{row[c.key] || "-"}</td>;
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="skeleton-wrap">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div className="skeleton-row" key={i} />
+              ))}
             </div>
+          ) : error ? (
+            <div className="empty-state">
+              <div className="empty-icon">⚠️</div>
+              {error}
+            </div>
+          ) : filteredRows.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">🔍</div>
+              ما في نتائج مطابقة
+            </div>
+          ) : (
+            <>
+              <div className="table-scroll table-only">
+                <table>
+                  <thead>
+                    <tr>
+                      <th style={{ width: 44 }}>#</th>
+                      {shownColumns.map((c) => (
+                        <th
+                          key={c.key}
+                          className="sortable-th"
+                          onClick={() => toggleSort(c.key)}
+                        >
+                          {c.label}
+                          <span className="sort-arrow">
+                            {sortIndicator(c.key)}
+                          </span>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pagedRows.map((row, idx) => (
+                      <tr key={idx} onClick={() => setSelected(row)}>
+                        <td>{(page - 1) * PAGE_SIZE + idx + 1}</td>
+                        {shownColumns.map((c) => {
+                          const value = getFieldValue(row, c.key);
+                          if (c.key === ACTIVE_FIELD) {
+                            return (
+                              <td key={c.key}>
+                                <span className={activeBadgeClass(value)}>
+                                  {value || "-"}
+                                </span>
+                              </td>
+                            );
+                          }
+                          if (c.key === GENDER_FIELD) {
+                            return (
+                              <td key={c.key}>
+                                <span className={genderBadgeClass(value)}>
+                                  {value || "-"}
+                                </span>
+                              </td>
+                            );
+                          }
+                          return <td key={c.key}>{value || "-"}</td>;
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="cards-only">
+                {pagedRows.map((row, idx) => {
+                  const name = getFieldValue(row, NAME_FIELD);
+                  const troop = getFieldValue(row, TROOP_FIELD);
+                  const stage = getFieldValue(row, STAGE_FIELD);
+                  const gender = getFieldValue(row, GENDER_FIELD);
+                  const activeStatus = getFieldValue(row, ACTIVE_FIELD);
+                  const phone = getFieldValue(row, PHONE_FIELD);
+                  return (
+                    <div
+                      className="member-card"
+                      key={idx}
+                      onClick={() => setSelected(row)}
+                    >
+                      <div className="member-card-top">
+                        <div className="member-card-name">
+                          {name || "بدون اسم"}
+                        </div>
+                        <span className={genderBadgeClass(gender)}>
+                          {gender || "-"}
+                        </span>
+                      </div>
+                      <div className="member-card-meta">
+                        <span>🏕️ {troop || "-"}</span>
+                        <span>🎖️ {stage || "-"}</span>
+                        {phone && <span>📞 {phone}</span>}
+                      </div>
+                      <span className={activeBadgeClass(activeStatus)}>
+                        {activeStatus || "-"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {totalPages > 1 && (
+                <div className="pagination">
+                  <button
+                    className="btn-ghost-sm"
+                    disabled={page <= 1}
+                    onClick={() => setPage((p) => p - 1)}
+                  >
+                    ‹ السابق
+                  </button>
+                  <span className="pagination-info">
+                    صفحة {page} من {totalPages}
+                  </span>
+                  <button
+                    className="btn-ghost-sm"
+                    disabled={page >= totalPages}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    التالي ›
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
 
+      <FilterPanel
+        open={filterPanelOpen}
+        onClose={() => setFilterPanelOpen(false)}
+        isMainAdmin={isMainAdmin}
+        troopOptions={troopOptions}
+        stageOptions={stageOptions}
+        selectedTroops={troops}
+        toggleTroop={(v) => setTroops((prev) => toggleInArray(prev, v))}
+        selectedStages={stages}
+        toggleStage={(v) => setStages((prev) => toggleInArray(prev, v))}
+        selectedGenders={genders}
+        toggleGender={(v) => setGenders((prev) => toggleInArray(prev, v))}
+        selectedStatuses={statuses}
+        toggleStatus={(v) => setStatuses((prev) => toggleInArray(prev, v))}
+        visibleColumns={visibleColumns}
+        toggleColumn={(v) =>
+          setVisibleColumns((prev) => toggleInArray(prev, v))
+        }
+        onReset={resetAll}
+      />
+
       {selected && (
-        <div className="modal-overlay" onClick={() => setSelected(null)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>{selected[NAME_FIELD] || "بيانات العضو"}</h2>
-              <button className="modal-close" onClick={() => setSelected(null)}>
-                ✕
-              </button>
-            </div>
-            <div className="modal-body">
-              {FIELD_GROUPS.map((group) => (
-                <div className="section-block" key={group.title}>
-                  <h3>{group.title}</h3>
-                  <div className="kv-grid">
-                    {group.fields.map((f) => {
-                      if (isFileFieldLabel(f)) {
-                        const matchedKey = getMatchingRowKey(selected, f);
-
-                        const links = parseFileLinks(
-                          matchedKey ? selected[matchedKey] : "",
-                        );
-
-                        return (
-                          <div className="kv-item kv-item-file" key={f}>
-                            <div className="k">{f}</div>
-
-                            {links.length > 0 ? (
-                              <div className="file-links">
-                                {links.map((link, i) => (
-                                  <a
-                                    key={i}
-                                    href={`/api/file-proxy?u=${encodeURIComponent(link)}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="file-link-btn"
-                                  >
-                                    📎 عرض الملف
-                                  </a>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="v">— لا يوجد مرفق —</div>
-                            )}
-                          </div>
-                        );
-                      }
-                      return (
-                        <div className="kv-item" key={f}>
-                          <div className="k">{f}</div>
-                          <div className="v">{selected[f] || "—"}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <ProfileModal row={selected} onClose={() => setSelected(null)} />
       )}
     </div>
   );

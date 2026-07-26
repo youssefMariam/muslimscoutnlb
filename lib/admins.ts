@@ -10,6 +10,7 @@ export type AdminAccount = {
   troop: string; // "all" أو اسم الفوج بالضبط كما بالشيت
   displayName: string; // الاسم يلي بيظهر بالواجهة
 };
+
 export const ADMINS: AdminAccount[] = [
   {
     username: "admin",
@@ -56,7 +57,7 @@ export const ADMINS: AdminAccount[] = [
   {
     username: "omar_abdulaziz",
     password: "OmarAziz#Troop2026!",
-    troop: "فوج عمر بن عبد العزيز - أبي سمراء",
+    troop: "فوج عمر بن عبد العزيز- أبي سمراء",
     displayName: "فوج عمر بن عبد العزيز",
   },
   {

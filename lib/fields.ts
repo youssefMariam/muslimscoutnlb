@@ -128,41 +128,57 @@ export const TROOP_FIELD = "اسم الفوج";
 export const STAGE_FIELD = "المرحلة الكشفية الحالية";
 export const GENDER_FIELD = "الجنس";
 export const ACTIVE_FIELD = "هل أنت ناشط كشفيًا حاليًا؟";
+export const BIRTH_FIELD = "تاريخ ولادة المنتسب";
+export const PHONE_FIELD = "رقم الهاتف الشخصي";
+export const RANK_FIELD = "الرتبة الأخيرة";
+export const REGISTRY_FIELD = "رقم السجل";
+
+// أعمدة إضافية اختيارية - المستخدم فيه يفعّلهم بالجدول عبر "تخصيص الأعمدة"
+export const OPTIONAL_COLUMNS = [
+  { key: BIRTH_FIELD, label: "تاريخ الميلاد" },
+  { key: REGISTRY_FIELD, label: "رقم السجل" },
+  { key: "المحافظة", label: "المحافظة" },
+  { key: "فئة الدم", label: "فئة الدم" },
+];
+
+export const ALL_COLUMNS = [...TABLE_COLUMNS, ...OPTIONAL_COLUMNS];
 
 // حقول المرفقات (روابط Google Drive) - هاي بتنعرض كروابط قابلة للفتح مش نص عادي
 // عدّل النص هون إذا اسم عمود المرفق بالشيت مختلف شوي عن نص السؤال بالفورم
 export const FILE_FIELDS = [
-  "صورة عن الهوية أو اخراج القيد أو الإقامة↵مهم:صورهم بطريقة scan في pdf واحد",
-
-  "قم بتصوير جميع شهادات الدراسات والدرجات الكشفية والقيادية التي شاركت بها ↵قم بوضع كافة الشهادات في ملف واحد↵الملف pdf والشهادات scan بطريقة واضحة ومرتبة",
+  "صورة عن الهوية أو اخراج القيد أو الإقامة",
+  "قم بتصوير جميع شهادات الدراسات والدرجات الكشفية والقيادية التي شاركت بها",
 ];
 
-export function normalizeFieldLabel(value: string) {
-  return (value || "")
-    .replace(/↵/g, " ")
+// بيشيل الرموز الخفية (RTL/LRM marks وغيرها) يلي Google Forms ممكن تحطها
+// بعناوين الأعمدة، ويوحّد المسافات - حتى المطابقة ما تنكسر بسبب فرق غير مرئي
+function normalizeHeader(s: string): string {
+  return (s || "")
+    .replace(/[\u200B-\u200F\u202A-\u202E\uFEFF]/g, "")
     .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
+    .trim();
 }
 
-export function isFileFieldLabel(value: string) {
-  const normalized = normalizeFieldLabel(value);
-  return FILE_FIELDS.some((field) => {
-    const base = normalizeFieldLabel(field);
-    return normalized.startsWith(base) || base.startsWith(normalized);
-  });
+export function isFileFieldLabel(label: string): boolean {
+  const norm = normalizeHeader(label);
+  return FILE_FIELDS.some(
+    (f) => normalizeHeader(f) === norm || norm.includes(normalizeHeader(f))
+  );
 }
 
-export function getMatchingRowKey(row: Record<string, string>, label: string) {
-  if (label in row) return label;
+// بيدوّر عن اسم العمود الفعلي بالصف (row) يلي بيطابق اسم الحقل بالكود -
+// تطابق تام أولاً، وإلا تطابق جزئي بعد إزالة الرموز الخفية والمسافات الزايدة
+export function getMatchingRowKey(row: Record<string, string>, fieldLabel: string): string | undefined {
+  if (row[fieldLabel] !== undefined) return fieldLabel;
+  const normTarget = normalizeHeader(fieldLabel);
+  const keys = Object.keys(row);
+  return (
+    keys.find((k) => normalizeHeader(k) === normTarget) ||
+    keys.find((k) => normalizeHeader(k).includes(normTarget) || normTarget.includes(normalizeHeader(k)))
+  );
+}
 
-  const normalizedLabel = normalizeFieldLabel(label);
-  return Object.keys(row).find((key) => {
-    const normalizedKey = normalizeFieldLabel(key);
-    return (
-      normalizedKey === normalizedLabel ||
-      normalizedKey.startsWith(normalizedLabel) ||
-      normalizedLabel.startsWith(normalizedKey)
-    );
-  });
+export function getFieldValue(row: Record<string, string>, fieldLabel: string): string {
+  const key = getMatchingRowKey(row, fieldLabel);
+  return key ? row[key] || "" : "";
 }
