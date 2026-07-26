@@ -56,7 +56,7 @@ export const ADMINS: AdminAccount[] = [
   {
     username: "omar_abdulaziz",
     password: "OmarAziz#Troop2026!",
-    troop: "فوج عمر بن عبد العزيز- أبي سمراء",
+    troop: "فوج عمر بن عبد العزيز - أبي سمراء",
     displayName: "فوج عمر بن عبد العزيز",
   },
   {
