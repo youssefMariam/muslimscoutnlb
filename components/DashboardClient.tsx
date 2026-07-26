@@ -176,6 +176,21 @@ export default function DashboardClient({ session }: { session: SessionData }) {
   }, []);
 
   useEffect(() => {
+    if (!selected && !filterPanelOpen) return;
+
+    const bodyOverflow = document.body.style.overflow;
+    const htmlOverflow = document.documentElement.style.overflow;
+
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = bodyOverflow;
+      document.documentElement.style.overflow = htmlOverflow;
+    };
+  }, [selected, filterPanelOpen]);
+
+  useEffect(() => {
     setPage(1);
   }, [search, troops, stages, genders, statuses]);
 
