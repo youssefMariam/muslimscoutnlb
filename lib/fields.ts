@@ -131,6 +131,10 @@ export const ACTIVE_FIELD = "هل أنت ناشط كشفيًا حاليًا؟";
 export const BIRTH_FIELD = "تاريخ ولادة المنتسب";
 export const PHONE_FIELD = "رقم الهاتف الشخصي";
 export const RANK_FIELD = "الرتبة الأخيرة";
+export const DEGREES_FIELD = "حائز على الدرجات الكشفية التالية:";
+export const CURRENT_MEMBERSHIP_FIELD = "العضوية الحالية";
+export const WOOD_BADGE_FIELD = "الشارات الخشبية الحائزعليها";
+export const TASKS_FIELD = "المهام التي كلفت بها";
 export const REGISTRY_FIELD = "رقم السجل";
 
 // أعمدة إضافية اختيارية - المستخدم فيه يفعّلهم بالجدول عبر "تخصيص الأعمدة"
@@ -162,23 +166,33 @@ function normalizeHeader(s: string): string {
 export function isFileFieldLabel(label: string): boolean {
   const norm = normalizeHeader(label);
   return FILE_FIELDS.some(
-    (f) => normalizeHeader(f) === norm || norm.includes(normalizeHeader(f))
+    (f) => normalizeHeader(f) === norm || norm.includes(normalizeHeader(f)),
   );
 }
 
 // بيدوّر عن اسم العمود الفعلي بالصف (row) يلي بيطابق اسم الحقل بالكود -
 // تطابق تام أولاً، وإلا تطابق جزئي بعد إزالة الرموز الخفية والمسافات الزايدة
-export function getMatchingRowKey(row: Record<string, string>, fieldLabel: string): string | undefined {
+export function getMatchingRowKey(
+  row: Record<string, string>,
+  fieldLabel: string,
+): string | undefined {
   if (row[fieldLabel] !== undefined) return fieldLabel;
   const normTarget = normalizeHeader(fieldLabel);
   const keys = Object.keys(row);
   return (
     keys.find((k) => normalizeHeader(k) === normTarget) ||
-    keys.find((k) => normalizeHeader(k).includes(normTarget) || normTarget.includes(normalizeHeader(k)))
+    keys.find(
+      (k) =>
+        normalizeHeader(k).includes(normTarget) ||
+        normTarget.includes(normalizeHeader(k)),
+    )
   );
 }
 
-export function getFieldValue(row: Record<string, string>, fieldLabel: string): string {
+export function getFieldValue(
+  row: Record<string, string>,
+  fieldLabel: string,
+): string {
   const key = getMatchingRowKey(row, fieldLabel);
   return key ? row[key] || "" : "";
 }

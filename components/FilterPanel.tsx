@@ -39,10 +39,23 @@ export default function FilterPanel({
   isMainAdmin,
   troopOptions,
   stageOptions,
+  rankOptions,
+  degreeOptions,
+  membershipOptions,
+  woodBadgeOptions,
   selectedTroops,
   toggleTroop,
   selectedStages,
   toggleStage,
+  selectedRanks,
+  toggleRank,
+  selectedDegrees,
+  toggleDegree,
+  selectedMemberships,
+  toggleMembership,
+  selectedWoodBadges,
+  toggleWoodBadge,
+
   selectedGenders,
   toggleGender,
   selectedStatuses,
@@ -56,10 +69,23 @@ export default function FilterPanel({
   isMainAdmin: boolean;
   troopOptions: string[];
   stageOptions: string[];
+  rankOptions: string[];
+  degreeOptions: string[];
+  membershipOptions: string[];
+  woodBadgeOptions: string[];
   selectedTroops: string[];
   toggleTroop: (v: string) => void;
   selectedStages: string[];
   toggleStage: (v: string) => void;
+  selectedRanks: string[];
+  toggleRank: (v: string) => void;
+  selectedDegrees: string[];
+  toggleDegree: (v: string) => void;
+  selectedMemberships: string[];
+  toggleMembership: (v: string) => void;
+  selectedWoodBadges: string[];
+  toggleWoodBadge: (v: string) => void;
+
   selectedGenders: string[];
   toggleGender: (v: string) => void;
   selectedStatuses: string[];
@@ -75,7 +101,9 @@ export default function FilterPanel({
       <div className="filter-drawer" onClick={(e) => e.stopPropagation()}>
         <div className="filter-drawer-header">
           <h3>تصفية وتخصيص</h3>
-          <button className="modal-close" onClick={onClose}>✕</button>
+          <button className="modal-close" onClick={onClose}>
+            ✕
+          </button>
         </div>
 
         <div className="filter-drawer-body">
@@ -93,6 +121,31 @@ export default function FilterPanel({
             selected={selectedStages}
             onToggle={toggleStage}
           />
+          <CheckboxGroup
+            title="الرتبة الأخيرة"
+            options={rankOptions}
+            selected={selectedRanks}
+            onToggle={toggleRank}
+          />
+          <CheckboxGroup
+            title="الدرجات الكشفية"
+            options={degreeOptions}
+            selected={selectedDegrees}
+            onToggle={toggleDegree}
+          />
+          <CheckboxGroup
+            title="العضوية الحالية"
+            options={membershipOptions}
+            selected={selectedMemberships}
+            onToggle={toggleMembership}
+          />
+          <CheckboxGroup
+            title="الشارات الخشبية"
+            options={woodBadgeOptions}
+            selected={selectedWoodBadges}
+            onToggle={toggleWoodBadge}
+          />
+
           <CheckboxGroup
             title="الجنس"
             options={["ذكر", "أنثى"]}
@@ -124,8 +177,12 @@ export default function FilterPanel({
         </div>
 
         <div className="filter-drawer-footer">
-          <button className="btn-clear-filters" onClick={onReset}>إعادة تعيين الكل</button>
-          <button className="btn-primary-sm" onClick={onClose}>تم</button>
+          <button className="btn-clear-filters" onClick={onReset}>
+            إعادة تعيين الكل
+          </button>
+          <button className="btn-primary-sm" onClick={onClose}>
+            تم
+          </button>
         </div>
       </div>
     </div>

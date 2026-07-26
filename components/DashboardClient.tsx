@@ -9,6 +9,10 @@ import {
   NAME_FIELD,
   TROOP_FIELD,
   STAGE_FIELD,
+  RANK_FIELD,
+  DEGREES_FIELD,
+  CURRENT_MEMBERSHIP_FIELD,
+  WOOD_BADGE_FIELD,
   GENDER_FIELD,
   ACTIVE_FIELD,
   PHONE_FIELD,
@@ -60,6 +64,29 @@ function toggleInArray(arr: string[], value: string): string[] {
   return arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value];
 }
 
+function splitFilterValues(value: string): string[] {
+  return value
+    .split(/[\n,،؛|\/]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function cellMatchesSelectedValues(
+  cellValue: string,
+  selectedValues: string[],
+): boolean {
+  if (selectedValues.length === 0) return true;
+  const normalizedCell = cellValue.toLowerCase();
+  const parts = splitFilterValues(cellValue);
+  return selectedValues.some((selected) => {
+    const normalizedSelected = selected.toLowerCase();
+    return (
+      normalizedCell.includes(normalizedSelected) ||
+      parts.some((part) => part.toLowerCase().includes(normalizedSelected))
+    );
+  });
+}
+
 export default function DashboardClient({ session }: { session: SessionData }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -79,6 +106,19 @@ export default function DashboardClient({ session }: { session: SessionData }) {
   const [stages, setStages] = useState<string[]>(() =>
     parseListParam(searchParams, "stage"),
   );
+  const [ranks, setRanks] = useState<string[]>(() =>
+    parseListParam(searchParams, "rank"),
+  );
+  const [degrees, setDegrees] = useState<string[]>(() =>
+    parseListParam(searchParams, "degrees"),
+  );
+  const [memberships, setMemberships] = useState<string[]>(() =>
+    parseListParam(searchParams, "membership"),
+  );
+  const [woodBadges, setWoodBadges] = useState<string[]>(() =>
+    parseListParam(searchParams, "wood"),
+  );
+
   const [genders, setGenders] = useState<string[]>(() =>
     parseListParam(searchParams, "gender"),
   );
@@ -130,6 +170,10 @@ export default function DashboardClient({ session }: { session: SessionData }) {
     if (search.trim()) qs.set("q", search.trim());
     if (troops.length) qs.set("troop", troops.join(","));
     if (stages.length) qs.set("stage", stages.join(","));
+    if (ranks.length) qs.set("rank", ranks.join(","));
+    if (degrees.length) qs.set("degrees", degrees.join(","));
+    if (memberships.length) qs.set("membership", memberships.join(","));
+    if (woodBadges.length) qs.set("wood", woodBadges.join(","));
     if (genders.length) qs.set("gender", genders.join(","));
     if (statuses.length) qs.set("status", statuses.join(","));
     const next = qs.toString();
@@ -140,7 +184,17 @@ export default function DashboardClient({ session }: { session: SessionData }) {
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, troops, stages, genders, statuses]);
+  }, [
+    search,
+    troops,
+    stages,
+    ranks,
+    degrees,
+    memberships,
+    woodBadges,
+    genders,
+    statuses,
+  ]);
 
   const loadData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -255,12 +309,67 @@ export default function DashboardClient({ session }: { session: SessionData }) {
     return Array.from(set).sort();
   }, [rows]);
 
+  const rankOptions = useMemo(() => {
+    const set = new Set(
+      rows.map((r) => getFieldValue(r, RANK_FIELD)).filter(Boolean),
+    );
+    return Array.from(set).sort();
+  }, [rows]);
+
+  const degreeOptions = useMemo(() => {
+    const set = new Set(
+      rows
+        .flatMap((r) => splitFilterValues(getFieldValue(r, DEGREES_FIELD)))
+        .filter(Boolean),
+    );
+    return Array.from(set).sort();
+  }, [rows]);
+
+  const membershipOptions = useMemo(() => {
+    const set = new Set(
+      rows
+        .flatMap((r) =>
+          splitFilterValues(getFieldValue(r, CURRENT_MEMBERSHIP_FIELD)),
+        )
+        .filter(Boolean),
+    );
+    return Array.from(set).sort();
+  }, [rows]);
+
+  const woodBadgeOptions = useMemo(() => {
+    const set = new Set(
+      rows
+        .flatMap((r) => splitFilterValues(getFieldValue(r, WOOD_BADGE_FIELD)))
+        .filter(Boolean),
+    );
+    return Array.from(set).sort();
+  }, [rows]);
+
   const filteredRows = useMemo(() => {
     let result = rows.filter((r) => {
       if (troops.length && !troops.includes(getFieldValue(r, TROOP_FIELD)))
         return false;
       if (stages.length && !stages.includes(getFieldValue(r, STAGE_FIELD)))
         return false;
+      if (ranks.length && !ranks.includes(getFieldValue(r, RANK_FIELD)))
+        return false;
+      if (!cellMatchesSelectedValues(getFieldValue(r, DEGREES_FIELD), degrees))
+        return false;
+      if (
+        !cellMatchesSelectedValues(
+          getFieldValue(r, CURRENT_MEMBERSHIP_FIELD),
+          memberships,
+        )
+      )
+        return false;
+      if (
+        !cellMatchesSelectedValues(
+          getFieldValue(r, WOOD_BADGE_FIELD),
+          woodBadges,
+        )
+      )
+        return false;
+
       if (genders.length) {
         const g = getFieldValue(r, GENDER_FIELD);
         const isFemale = g.includes("أنث") || g.includes("انث");
@@ -305,7 +414,20 @@ export default function DashboardClient({ session }: { session: SessionData }) {
       });
     }
     return result;
-  }, [rows, troops, stages, genders, statuses, search, sortKey, sortDir]);
+  }, [
+    rows,
+    troops,
+    stages,
+    ranks,
+    degrees,
+    memberships,
+    woodBadges,
+    genders,
+    statuses,
+    search,
+    sortKey,
+    sortDir,
+  ]);
 
   const stats = useMemo(() => {
     const total = filteredRows.length;
@@ -335,6 +457,10 @@ export default function DashboardClient({ session }: { session: SessionData }) {
   const activeFilterCount =
     troops.length +
     stages.length +
+    ranks.length +
+    degrees.length +
+    memberships.length +
+    woodBadges.length +
     genders.length +
     statuses.length +
     (search.trim() ? 1 : 0);
@@ -343,6 +469,10 @@ export default function DashboardClient({ session }: { session: SessionData }) {
     setSearchInput("");
     setTroops([]);
     setStages([]);
+    setRanks([]);
+    setDegrees([]);
+    setMemberships([]);
+    setWoodBadges([]);
     setGenders([]);
     setStatuses([]);
   }
@@ -604,10 +734,24 @@ export default function DashboardClient({ session }: { session: SessionData }) {
         isMainAdmin={isMainAdmin}
         troopOptions={troopOptions}
         stageOptions={stageOptions}
+        rankOptions={rankOptions}
+        degreeOptions={degreeOptions}
+        membershipOptions={membershipOptions}
+        woodBadgeOptions={woodBadgeOptions}
         selectedTroops={troops}
         toggleTroop={(v) => setTroops((prev) => toggleInArray(prev, v))}
         selectedStages={stages}
         toggleStage={(v) => setStages((prev) => toggleInArray(prev, v))}
+        selectedRanks={ranks}
+        toggleRank={(v) => setRanks((prev) => toggleInArray(prev, v))}
+        selectedDegrees={degrees}
+        toggleDegree={(v) => setDegrees((prev) => toggleInArray(prev, v))}
+        selectedMemberships={memberships}
+        toggleMembership={(v) =>
+          setMemberships((prev) => toggleInArray(prev, v))
+        }
+        selectedWoodBadges={woodBadges}
+        toggleWoodBadge={(v) => setWoodBadges((prev) => toggleInArray(prev, v))}
         selectedGenders={genders}
         toggleGender={(v) => setGenders((prev) => toggleInArray(prev, v))}
         selectedStatuses={statuses}
